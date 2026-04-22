@@ -134,11 +134,19 @@ func TestUnknownKey(t *testing.T) {
 		Name string
 	}
 	var s Simple
-	ensure.Nil(t, Unmarshal(&s, caddyfile.NewTestDispenser(`simple {
+	err := Unmarshal(&s, caddyfile.NewTestDispenser(`simple {
 		name foo
 		unknown bar
-	}`)))
-	ensure.DeepEqual(t, s, Simple{Name: "foo"})
+	}`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unrecognized key: unknown") {
+		t.Fatalf("expected unrecognized key error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
 }
 
 func TestUnexportedField(t *testing.T) {
@@ -201,6 +209,9 @@ func TestInvalidPositionalArg(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
 }
 
 func TestInvalidBlockValues(t *testing.T) {
@@ -224,8 +235,12 @@ func TestInvalidBlockValues(t *testing.T) {
 				Expires time.Duration
 			}
 			var a All
-			if err := Unmarshal(&a, caddyfile.NewTestDispenser(c.input)); err == nil {
+			err := Unmarshal(&a, caddyfile.NewTestDispenser(c.input))
+			if err == nil {
 				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), "Testfile") {
+				t.Fatalf("expected file info in error, got: %v", err)
 			}
 		})
 	}
@@ -236,10 +251,14 @@ func TestInvalidSliceElement(t *testing.T) {
 		Ages []int
 	}
 	var b BadSlice
-	if err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad {
+	err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad {
 		ages 1 two 3
-	}`)); err == nil {
+	}`))
+	if err == nil {
 		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
 	}
 }
 
@@ -248,10 +267,14 @@ func TestUnsupportedType(t *testing.T) {
 		Ch chan int
 	}
 	var b Bad
-	if err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad {
+	err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad {
 		ch foo
-	}`)); err == nil {
+	}`))
+	if err == nil {
 		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
 	}
 }
 
@@ -263,12 +286,16 @@ func TestNestedError(t *testing.T) {
 		Child Child
 	}
 	var p Parent
-	if err := Unmarshal(&p, caddyfile.NewTestDispenser(`parent {
+	err := Unmarshal(&p, caddyfile.NewTestDispenser(`parent {
 		child {
 			age notanumber
 		}
-	}`)); err == nil {
+	}`))
+	if err == nil {
 		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
 	}
 }
 
@@ -295,5 +322,8 @@ func TestErrorsWrapped(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "arg 0:") {
 		t.Fatalf("expected wrapped error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
 	}
 }

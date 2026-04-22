@@ -75,7 +75,7 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		if fieldIdx, ok := argFields[idx]; ok {
 			field := elem.Field(fieldIdx)
 			if err := setValue(field, argVal, false); err != nil {
-				return fmt.Errorf("arg %d: %w", idx, err)
+				return d.WrapErr(fmt.Errorf("arg %d: %w", idx, err))
 			}
 		}
 	}
@@ -85,15 +85,16 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		key := d.Val()
 		fieldIdx, ok := blockFields[key]
 		if !ok {
-			continue
+			return d.Err(fmt.Sprintf("unrecognized key: %s", key))
 		}
 
 		field := elem.Field(fieldIdx)
 
 		if structFields[fieldIdx] {
+			file, line := d.File(), d.Line()
 			seg := d.NewFromNextSegment()
 			if err := Unmarshal(field.Addr().Interface(), seg); err != nil {
-				return fmt.Errorf("%s: %w", key, err)
+				return fmt.Errorf("%s (at %s:%d): %w", key, file, line, err)
 			}
 			continue
 		}
@@ -104,13 +105,13 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		if isSlice {
 			for _, val := range values {
 				if err := setValue(field, val, true); err != nil {
-					return fmt.Errorf("%s: %w", key, err)
+					return d.WrapErr(fmt.Errorf("%s: %w", key, err))
 				}
 			}
 		} else {
 			if len(values) > 0 {
 				if err := setValue(field, values[0], false); err != nil {
-					return fmt.Errorf("%s: %w", key, err)
+					return d.WrapErr(fmt.Errorf("%s: %w", key, err))
 				}
 			}
 		}
