@@ -28,10 +28,12 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 
 	rt := elem.Type()
 
-	argFields := make(map[int]int)       // arg index -> field index
-	blockFields := make(map[string]int)  // key -> field index
-	sliceFields := make(map[int]bool)    // field index -> is slice
-	structFields := make(map[int]bool)   // field index -> is struct
+	argFields := make(map[int]int)        // arg index -> field index
+	blockFields := make(map[string]int)   // key -> field index
+	sliceFields := make(map[int]bool)     // field index -> is slice
+	structFields := make(map[int]bool)    // field index -> is struct
+	unmarshalerFields := make(map[int]bool) // field index -> implements caddyfile.Unmarshaler
+	unmarshalerType := reflect.TypeFor[caddyfile.Unmarshaler]()
 
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
@@ -39,7 +41,9 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 			continue
 		}
 
-		if field.Type.Kind() == reflect.Slice {
+		if reflect.PointerTo(field.Type).Implements(unmarshalerType) {
+			unmarshalerFields[i] = true
+		} else if field.Type.Kind() == reflect.Slice {
 			// []byte / []uint8 are treated as scalars (single base64 value)
 			if field.Type.Elem().Kind() != reflect.Uint8 {
 				sliceFields[i] = true
@@ -79,6 +83,9 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		for idx, argVal := range args {
 			if fieldIdx, ok := argFields[idx]; ok {
 				field := elem.Field(fieldIdx)
+				if unmarshalerFields[fieldIdx] {
+					return d.Err(fmt.Sprintf("field with arg=%d implements Unmarshaler and cannot be used as positional argument", idx))
+				}
 				if err := setValue(field, argVal, false); err != nil {
 					return d.WrapErr(fmt.Errorf("arg %d: %w", idx, err))
 				}
@@ -95,6 +102,9 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 			field := elem.Field(fieldIdx)
 			if structFields[fieldIdx] {
 				return d.Err(fmt.Sprintf("struct field %s cannot be used inline", key))
+			}
+			if unmarshalerFields[fieldIdx] {
+				return d.Err(fmt.Sprintf("field %s implements Unmarshaler and cannot be used inline", key))
 			}
 			if i+1 >= len(args) {
 				return d.Err(fmt.Sprintf("key %s has no value", key))
@@ -124,6 +134,15 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		}
 
 		field := elem.Field(fieldIdx)
+
+		if unmarshalerFields[fieldIdx] {
+			file, line := d.File(), d.Line()
+			unmarshaler := field.Addr().Interface().(caddyfile.Unmarshaler)
+			if err := unmarshaler.UnmarshalCaddyfile(d); err != nil {
+				return fmt.Errorf("%s (at %s:%d): %w", key, file, line, err)
+			}
+			continue
+		}
 
 		if structFields[fieldIdx] {
 			file, line := d.File(), d.Line()

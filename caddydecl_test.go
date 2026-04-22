@@ -1,6 +1,7 @@
 package caddydecl
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -399,6 +400,7 @@ func TestByteSliceSingleValueOnly(t *testing.T) {
 	}
 	var b Bytes
 	// Only the first token is used; the rest are ignored
+	// TODO: this should cause an error
 	ensure.Nil(t, Unmarshal(&b, caddyfile.NewTestDispenser(`bytes {
 		data Zm9v YmFy
 	}`)))
@@ -567,5 +569,110 @@ func TestInlineInvalidSliceValue(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Testfile") {
 		t.Fatalf("expected file info in error, got: %v", err)
+	}
+}
+
+type User struct {
+	ID   string
+	Name string
+	Tags []string
+}
+
+type Users []User
+
+func (a *Users) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	for nesting := d.Nesting(); d.NextBlock(nesting); {
+		segment := d.NextSegment()
+		var u User
+		for i, token := range segment {
+			switch i {
+			case 0:
+				u.ID = token.Text
+			case 1:
+				u.Name = token.Text
+			default:
+				u.Tags = append(u.Tags, token.Text)
+			}
+		}
+		*a = append(*a, u)
+	}
+	return nil
+}
+
+func TestCustomUnmarshaler(t *testing.T) {
+	type Config struct {
+		Users Users
+	}
+	var c Config
+	d := caddyfile.NewTestDispenser(
+		`config {
+			users {
+				zaphod "Zaphod" admin crew
+				trillian "Trillian" admin crew
+				marvin
+			}
+		}`)
+	ensure.Nil(t, Unmarshal(&c, d))
+	ensure.DeepEqual(t, c,
+		Config{
+			Users: Users{
+				{"zaphod", "Zaphod", []string{"admin", "crew"}},
+				{"trillian", "Trillian", []string{"admin", "crew"}},
+				{"marvin", "", nil},
+			},
+		})
+}
+
+func TestCustomUnmarshalerInlineError(t *testing.T) {
+	type Config struct {
+		Users Users
+	}
+	var c Config
+	err := Unmarshal(&c, caddyfile.NewTestDispenser(`config users`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "implements Unmarshaler and cannot be used inline") {
+		t.Fatalf("expected inline unmarshaler error, got: %v", err)
+	}
+}
+
+func TestCustomUnmarshalerPositionalArgError(t *testing.T) {
+	type Config struct {
+		Users Users `caddydecl:"arg=0"`
+	}
+	var c Config
+	err := Unmarshal(&c, caddyfile.NewTestDispenser(`config users`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "implements Unmarshaler and cannot be used as positional argument") {
+		t.Fatalf("expected positional arg unmarshaler error, got: %v", err)
+	}
+}
+
+type BadUsers []User
+
+func (a *BadUsers) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	return fmt.Errorf("bad users")
+}
+
+func TestCustomUnmarshalerBlockError(t *testing.T) {
+	type Config struct {
+		Users BadUsers
+	}
+	var c Config
+	d := caddyfile.NewTestDispenser(
+		`config {
+			users {
+				foo
+			}
+		}`)
+	err := Unmarshal(&c, d)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "users") {
+		t.Fatalf("expected users error, got: %v", err)
 	}
 }
