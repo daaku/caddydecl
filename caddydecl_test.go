@@ -31,7 +31,8 @@ func TestSuccess(t *testing.T) {
 		},
 		{
 			"empty block",
-			`gate {}`,
+			`gate {
+			}`,
 			Gate{},
 		},
 		{

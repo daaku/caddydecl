@@ -66,15 +66,8 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		return nil
 	}
 
-	// Parse positional args, stopping at block opener
+	// Parse positional args
 	args := d.RemainingArgs()
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "{") {
-			args = args[:i]
-			break
-		}
-	}
-
 	for idx, argVal := range args {
 		if fieldIdx, ok := argFields[idx]; ok {
 			field := elem.Field(fieldIdx)
@@ -93,13 +86,6 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		}
 
 		values := d.RemainingArgs()
-		for i, v := range values {
-			if v == "}" {
-				values = values[:i]
-				break
-			}
-		}
-
 		field := elem.Field(fieldIdx)
 		isSlice := sliceFields[fieldIdx]
 
