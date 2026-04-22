@@ -47,7 +47,7 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		// Check for caddydecl tag (custom name and/or positional arg)
 		tag := field.Tag.Get("caddydecl")
 		if tag != "" {
-			for _, part := range strings.Split(tag, ",") {
+			for part := range strings.SplitSeq(tag, ",") {
 				part = strings.TrimSpace(part)
 				kv := strings.SplitN(part, "=", 2)
 				if len(kv) == 2 && kv[0] == "arg" {
