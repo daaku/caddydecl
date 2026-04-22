@@ -131,3 +131,22 @@ gate example.com {
     user naitik
 }
 ```
+
+## Key Override Behavior
+
+When the same key appears more than once in a block, the last value wins:
+
+```caddyfile
+gate {
+    name default
+    name overridden
+}
+```
+
+```go
+Name == "overridden"
+```
+
+This is an explicit design decision. It allows configurations to declare
+defaults and then override them later — for example, when using Caddyfile
+`import` files that set base values and then specialize them.
