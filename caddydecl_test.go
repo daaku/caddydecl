@@ -84,3 +84,30 @@ func TestSuccess(t *testing.T) {
 		ensure.DeepEqual(t, g, c.expected)
 	}
 }
+
+func TestNested(t *testing.T) {
+	type Child struct {
+		Age int
+	}
+	type Nested struct {
+		Name  string
+		Child Child
+	}
+
+	var n Nested
+	d := caddyfile.NewTestDispenser(
+		`nested {
+				name foo
+				child {
+					age 10
+				}
+			}`)
+	ensure.Nil(t, Unmarshal(&n, d))
+	ensure.DeepEqual(t, n,
+		Nested{
+			Name: "foo",
+			Child: Child{
+				Age: 10,
+			},
+		})
+}

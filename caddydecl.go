@@ -27,9 +27,10 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 
 	rt := elem.Type()
 
-	argFields := make(map[int]int)      // arg index -> field index
-	blockFields := make(map[string]int) // key -> field index
-	sliceFields := make(map[int]bool)   // field index -> is slice
+	argFields := make(map[int]int)       // arg index -> field index
+	blockFields := make(map[string]int)  // key -> field index
+	sliceFields := make(map[int]bool)    // field index -> is slice
+	structFields := make(map[int]bool)   // field index -> is struct
 
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
@@ -39,6 +40,8 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 
 		if field.Type.Kind() == reflect.Slice {
 			sliceFields[i] = true
+		} else if field.Type.Kind() == reflect.Struct {
+			structFields[i] = true
 		}
 
 		// All exported fields are potential block properties
@@ -85,8 +88,17 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 			continue
 		}
 
-		values := d.RemainingArgs()
 		field := elem.Field(fieldIdx)
+
+		if structFields[fieldIdx] {
+			seg := d.NewFromNextSegment()
+			if err := Unmarshal(field.Addr().Interface(), seg); err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			continue
+		}
+
+		values := d.RemainingArgs()
 		isSlice := sliceFields[fieldIdx]
 
 		if isSlice {
