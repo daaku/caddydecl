@@ -1,3 +1,5 @@
+// Package caddydecl provides reflect based Unmarshaling of Caddyfile config
+// into a struct.
 package caddydecl
 
 import (
@@ -14,7 +16,7 @@ import (
 // Unmarshal directives from caddyfiles into structs in a predictable fashion.
 func Unmarshal(v any, d *caddyfile.Dispenser) error {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("v must be a non-nil pointer")
 	}
 
@@ -139,7 +141,7 @@ func setScalar(field reflect.Value, val string) error {
 	case reflect.String:
 		field.SetString(val)
 	default:
-		if field.Type() == reflect.TypeOf(time.Duration(0)) {
+		if field.Type() == reflect.TypeFor[time.Duration]() {
 			d, err := caddy.ParseDuration(val)
 			if err != nil {
 				return err
