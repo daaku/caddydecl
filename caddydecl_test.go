@@ -59,7 +59,7 @@ func TestSuccess(t *testing.T) {
 			},
 		},
 		{
-			"arg + block",
+			"arg and block",
 			`gate example.com {
 				tags admin staff
 				user naitik
@@ -80,9 +80,11 @@ func TestSuccess(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		var g Gate
-		ensure.Nil(t, Unmarshal(&g, caddyfile.NewTestDispenser(c.input)))
-		ensure.DeepEqual(t, g, c.expected)
+		t.Run(c.name, func(t *testing.T) {
+			var g Gate
+			ensure.Nil(t, Unmarshal(&g, caddyfile.NewTestDispenser(c.input)))
+			ensure.DeepEqual(t, g, c.expected)
+		})
 	}
 }
 
