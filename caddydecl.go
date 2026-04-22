@@ -162,6 +162,16 @@ func setScalar(field reflect.Value, val string) error {
 			return err
 		}
 		field.SetUint(i)
+	case reflect.Float32, reflect.Float64:
+		bits := 64
+		if field.Kind() == reflect.Float32 {
+			bits = 32
+		}
+		f, err := strconv.ParseFloat(val, bits)
+		if err != nil {
+			return err
+		}
+		field.SetFloat(f)
 	case reflect.Bool:
 		switch strings.ToLower(val) {
 		case "true", "yes":

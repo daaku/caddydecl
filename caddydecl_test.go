@@ -15,6 +15,7 @@ type Gate struct {
 	Expires time.Duration
 	Age     int
 	Admin   bool
+	Factor  float32
 }
 
 func TestSuccess(t *testing.T) {
@@ -63,6 +64,7 @@ func TestSuccess(t *testing.T) {
 				expires 30d
 				age 42
 				admin true
+				factor 1.5
 			}`,
 			Gate{
 				Name:    "example.com",
@@ -71,6 +73,7 @@ func TestSuccess(t *testing.T) {
 				Expires: 30 * 24 * time.Hour,
 				Age:     42,
 				Admin:   true,
+				Factor:  1.5,
 			},
 		},
 	}
