@@ -13,6 +13,8 @@ type Gate struct {
 	UserID  string
 	Tags    []string
 	Expires time.Duration
+	Age     int
+	Admin   bool
 }
 
 func TestSuccess(t *testing.T) {
@@ -59,12 +61,16 @@ func TestSuccess(t *testing.T) {
 				tags admin staff
 				user_id naitik
 				expires 30d
+				age 42
+				admin true
 			}`,
 			Gate{
 				Name:    "example.com",
 				UserID:  "naitik",
 				Tags:    []string{"admin", "staff"},
 				Expires: 30 * 24 * time.Hour,
+				Age:     42,
+				Admin:   true,
 			},
 		},
 	}

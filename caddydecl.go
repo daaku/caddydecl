@@ -137,19 +137,42 @@ func setValue(field reflect.Value, val string, appendSlice bool) error {
 }
 
 func setScalar(field reflect.Value, val string) error {
+	// time.Duration is an int64, so check the type before the kind
+	if field.Type() == reflect.TypeFor[time.Duration]() {
+		d, err := caddy.ParseDuration(val)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(d))
+		return nil
+	}
+
 	switch field.Kind() {
 	case reflect.String:
 		field.SetString(val)
-	default:
-		if field.Type() == reflect.TypeFor[time.Duration]() {
-			d, err := caddy.ParseDuration(val)
-			if err != nil {
-				return err
-			}
-			field.Set(reflect.ValueOf(d))
-		} else {
-			return fmt.Errorf("unsupported type: %v", field.Type())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		i, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return err
 		}
+		field.SetInt(i)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		i, err := strconv.ParseUint(val, 10, 64)
+		if err != nil {
+			return err
+		}
+		field.SetUint(i)
+	case reflect.Bool:
+		switch strings.ToLower(val) {
+		case "true", "yes":
+			field.SetBool(true)
+		case "false", "no":
+			field.SetBool(false)
+		default:
+			return fmt.Errorf("invalid bool value: %s", val)
+		}
+	default:
+		return fmt.Errorf("unsupported type: %v", field.Type())
 	}
 	return nil
 }
