@@ -78,6 +78,18 @@ func TestSuccess(t *testing.T) {
 				Factor:  1.5,
 			},
 		},
+		{
+			"repeat slice appends",
+			`gate {
+				user naitik
+				tags admin
+				tags staff
+			}`,
+			Gate{
+				UserID: "naitik",
+				Tags:   []string{"admin", "staff"},
+			},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
