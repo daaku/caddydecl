@@ -392,3 +392,168 @@ func TestByteSliceSingleValueOnly(t *testing.T) {
 	}`)))
 	ensure.DeepEqual(t, b, Bytes{Data: []byte("foo")})
 }
+
+func TestInlineKeyValues(t *testing.T) {
+	type Inline struct {
+		Name string
+		Age  int
+		Tags []string
+	}
+
+	cases := []struct {
+		name     string
+		input    string
+		expected Inline
+	}{
+		{
+			"multiple inline",
+			`inline name foo age 42`,
+			Inline{
+				Name: "foo",
+				Age:  42,
+			},
+		},
+		{
+			"some inline some block",
+			`inline name foo {
+				age 42
+			}`,
+			Inline{
+				Name: "foo",
+				Age:  42,
+			},
+		},
+		{
+			"inline with slice",
+			`inline tags foo bar {
+				age 42
+			}`,
+			Inline{
+				Age:  42,
+				Tags: []string{"foo", "bar"},
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var i Inline
+			ensure.Nil(t, Unmarshal(&i, caddyfile.NewTestDispenser(c.input)))
+			ensure.DeepEqual(t, i, c.expected)
+		})
+	}
+}
+
+func TestInlineUnknownKeyError(t *testing.T) {
+	type Inline struct {
+		Name string
+	}
+	var i Inline
+	err := Unmarshal(&i, caddyfile.NewTestDispenser(`inline name foo unknown bar`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unrecognized key: unknown") {
+		t.Fatalf("expected unrecognized key error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
+}
+
+func TestInlineStructFieldError(t *testing.T) {
+	type Child struct {
+		Age int
+	}
+	type Inline struct {
+		Name  string
+		Child Child
+	}
+	var i Inline
+	err := Unmarshal(&i, caddyfile.NewTestDispenser(`inline name foo child`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "struct field child cannot be used inline") {
+		t.Fatalf("expected struct inline error, got: %v", err)
+	}
+}
+
+func TestInlineSliceConsumesAll(t *testing.T) {
+	type Inline struct {
+		Tags []string
+	}
+	var i Inline
+	// Slice consumes every remaining token to the end of the line
+	ensure.Nil(t, Unmarshal(&i, caddyfile.NewTestDispenser(`inline tags foo bar age 42`)))
+	ensure.DeepEqual(t, i, Inline{Tags: []string{"foo", "bar", "age", "42"}})
+}
+
+func TestInlineKeysBeforeSlice(t *testing.T) {
+	type Inline struct {
+		Name string
+		Tags []string
+	}
+	var i Inline
+	ensure.Nil(t, Unmarshal(&i, caddyfile.NewTestDispenser(`inline name foo tags bar baz`)))
+	ensure.DeepEqual(t, i, Inline{Name: "foo", Tags: []string{"bar", "baz"}})
+}
+
+func TestInlineKeyWithoutValueError(t *testing.T) {
+	type Inline struct {
+		Name string
+		Age  int
+	}
+	var i Inline
+	err := Unmarshal(&i, caddyfile.NewTestDispenser(`inline name foo age`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "key age has no value") {
+		t.Fatalf("expected no value error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
+}
+
+func TestInlineSliceWithoutValueError(t *testing.T) {
+	type Inline struct {
+		Tags []string
+	}
+	var i Inline
+	err := Unmarshal(&i, caddyfile.NewTestDispenser(`inline tags`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "key tags has no value") {
+		t.Fatalf("expected no value error, got: %v", err)
+	}
+}
+
+func TestInlineInvalidValue(t *testing.T) {
+	type Inline struct {
+		Age int
+	}
+	var i Inline
+	err := Unmarshal(&i, caddyfile.NewTestDispenser(`inline age notanumber`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
+}
+
+func TestInlineInvalidSliceValue(t *testing.T) {
+	type Inline struct {
+		Ages []int
+	}
+	var i Inline
+	err := Unmarshal(&i, caddyfile.NewTestDispenser(`inline ages 1 two`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
+}

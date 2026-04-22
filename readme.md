@@ -132,6 +132,53 @@ gate example.com {
 }
 ```
 
+## Inline Key-Value Pairs
+
+When a struct defines **no** positional arguments (`arg=N`), remaining tokens
+on the directive line are parsed as inline key-value pairs:
+
+```go
+type Inline struct {
+    Name string
+    Age  int
+}
+```
+
+```caddyfile
+inline name foo age 42
+```
+
+```go
+Name == "foo"
+Age  == 42
+```
+
+Inline pairs can also be mixed with a block:
+
+```caddyfile
+inline name foo {
+    age 42
+}
+```
+
+### Slices in inline mode
+
+A slice field consumes **all** remaining tokens on the line:
+
+```caddyfile
+inline tags admin staff
+```
+
+```go
+Tags []string // []string{"admin", "staff"}
+```
+
+### Inline restrictions
+
+- **Struct fields** cannot be set inline (use a nested block instead)
+- **Unknown keys** produce an error
+- A **key without a value** produces an error
+
 ## Key Override Behavior
 
 When the same key appears more than once in a block, the last value wins:

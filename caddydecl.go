@@ -73,14 +73,45 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		return nil
 	}
 
-	// Parse positional args
+	// Parse positional args or inline key-value pairs
 	args := d.RemainingArgs()
-	for idx, argVal := range args {
-		if fieldIdx, ok := argFields[idx]; ok {
-			field := elem.Field(fieldIdx)
-			if err := setValue(field, argVal, false); err != nil {
-				return d.WrapErr(fmt.Errorf("arg %d: %w", idx, err))
+	if len(argFields) > 0 {
+		for idx, argVal := range args {
+			if fieldIdx, ok := argFields[idx]; ok {
+				field := elem.Field(fieldIdx)
+				if err := setValue(field, argVal, false); err != nil {
+					return d.WrapErr(fmt.Errorf("arg %d: %w", idx, err))
+				}
 			}
+		}
+	} else {
+		// Parse inline key-value pairs
+		for i := 0; i < len(args); i++ {
+			key := args[i]
+			fieldIdx, ok := blockFields[key]
+			if !ok {
+				return d.Err(fmt.Sprintf("unrecognized key: %s", key))
+			}
+			field := elem.Field(fieldIdx)
+			if structFields[fieldIdx] {
+				return d.Err(fmt.Sprintf("struct field %s cannot be used inline", key))
+			}
+			if i+1 >= len(args) {
+				return d.Err(fmt.Sprintf("key %s has no value", key))
+			}
+			isSlice := sliceFields[fieldIdx]
+			if isSlice {
+				for _, val := range args[i+1:] {
+					if err := setValue(field, val, true); err != nil {
+						return d.WrapErr(fmt.Errorf("%s: %w", key, err))
+					}
+				}
+				break
+			}
+			if err := setValue(field, args[i+1], false); err != nil {
+				return d.WrapErr(fmt.Errorf("%s: %w", key, err))
+			}
+			i++
 		}
 	}
 
