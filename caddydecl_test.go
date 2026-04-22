@@ -9,7 +9,7 @@ import (
 )
 
 type Gate struct {
-	Name    string `caddydecl:"arg=0"`
+	Name    string `caddydecl:"name,arg=0"`
 	UserID  string `caddydecl:"user"`
 	Tags    []string
 	Expires time.Duration
