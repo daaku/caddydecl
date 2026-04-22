@@ -43,9 +43,8 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 
 		// All exported fields are potential block properties
 		key := toSnakeCase(field.Name)
-		blockFields[key] = i
 
-		// Check for positional arg tag
+		// Check for caddydecl tag (custom name or positional arg)
 		tag := field.Tag.Get("caddydecl")
 		if tag != "" {
 			parts := strings.SplitN(tag, "=", 2)
@@ -53,8 +52,11 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 				if idx, err := strconv.Atoi(parts[1]); err == nil {
 					argFields[idx] = i
 				}
+			} else {
+				key = tag
 			}
 		}
+		blockFields[key] = i
 	}
 
 	if !d.Next() {

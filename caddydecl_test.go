@@ -10,7 +10,7 @@ import (
 
 type Gate struct {
 	Name    string `caddydecl:"arg=0"`
-	UserID  string
+	UserID  string `caddydecl:"user"`
 	Tags    []string
 	Expires time.Duration
 	Age     int
@@ -46,7 +46,7 @@ func TestSuccess(t *testing.T) {
 			`gate {
 				name example.com
 				tags admin staff
-				user_id naitik
+				user naitik
 				expires 1d
 			}`,
 			Gate{
@@ -60,7 +60,7 @@ func TestSuccess(t *testing.T) {
 			"arg + block",
 			`gate example.com {
 				tags admin staff
-				user_id naitik
+				user naitik
 				expires 30d
 				age 42
 				admin true
