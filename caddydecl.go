@@ -3,6 +3,7 @@
 package caddydecl
 
 import (
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -39,7 +40,10 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		}
 
 		if field.Type.Kind() == reflect.Slice {
-			sliceFields[i] = true
+			// []byte / []uint8 are treated as scalars (single base64 value)
+			if field.Type.Elem().Kind() != reflect.Uint8 {
+				sliceFields[i] = true
+			}
 		} else if field.Type.Kind() == reflect.Struct {
 			structFields[i] = true
 		}
@@ -121,6 +125,16 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 }
 
 func setValue(field reflect.Value, val string, appendSlice bool) error {
+	// Special case: []byte as base64 URL encoded without padding
+	if field.Kind() == reflect.Slice && field.Type().Elem().Kind() == reflect.Uint8 {
+		decoded, err := base64.RawURLEncoding.DecodeString(val)
+		if err != nil {
+			return err
+		}
+		field.SetBytes(decoded)
+		return nil
+	}
+
 	if field.Kind() == reflect.Slice {
 		if !appendSlice {
 			field.Set(reflect.MakeSlice(field.Type(), 0, 0))

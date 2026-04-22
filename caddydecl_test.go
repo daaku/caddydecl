@@ -327,3 +327,66 @@ func TestErrorsWrapped(t *testing.T) {
 		t.Fatalf("expected file info in error, got: %v", err)
 	}
 }
+
+func TestByteSlice(t *testing.T) {
+	type Bytes struct {
+		Data []byte
+	}
+	var b Bytes
+	// "Zm9v" is base64url for "foo"
+	ensure.Nil(t, Unmarshal(&b, caddyfile.NewTestDispenser(`bytes {
+		data Zm9v
+	}`)))
+	ensure.DeepEqual(t, b, Bytes{Data: []byte("foo")})
+}
+
+func TestByteSlicePositionalArg(t *testing.T) {
+	type Bytes struct {
+		Data []byte `caddydecl:"arg=0"`
+	}
+	var b Bytes
+	// "YmFy" is base64url for "bar"
+	ensure.Nil(t, Unmarshal(&b, caddyfile.NewTestDispenser(`bytes YmFy`)))
+	ensure.DeepEqual(t, b, Bytes{Data: []byte("bar")})
+}
+
+func TestByteSliceMultipleValues(t *testing.T) {
+	type Bytes struct {
+		Data []byte
+	}
+	var b Bytes
+	// "Zm9v" = "foo", "YmFy" = "bar"; last value overwrites
+	ensure.Nil(t, Unmarshal(&b, caddyfile.NewTestDispenser(`bytes {
+		data Zm9v
+		data YmFy
+	}`)))
+	ensure.DeepEqual(t, b, Bytes{Data: []byte("bar")})
+}
+
+func TestByteSliceInvalidBase64(t *testing.T) {
+	type Bytes struct {
+		Data []byte
+	}
+	var b Bytes
+	err := Unmarshal(&b, caddyfile.NewTestDispenser(`bytes {
+		data not-valid!!!
+	}`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
+}
+
+func TestByteSliceSingleValueOnly(t *testing.T) {
+	type Bytes struct {
+		Data []byte
+	}
+	var b Bytes
+	// Only the first token is used; the rest are ignored
+	ensure.Nil(t, Unmarshal(&b, caddyfile.NewTestDispenser(`bytes {
+		data Zm9v YmFy
+	}`)))
+	ensure.DeepEqual(t, b, Bytes{Data: []byte("foo")})
+}
