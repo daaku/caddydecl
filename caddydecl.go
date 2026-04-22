@@ -120,10 +120,6 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 }
 
 func setValue(field reflect.Value, val string, appendSlice bool) error {
-	if !field.CanSet() {
-		return fmt.Errorf("cannot set field")
-	}
-
 	if field.Kind() == reflect.Slice {
 		if !appendSlice {
 			field.Set(reflect.MakeSlice(field.Type(), 0, 0))

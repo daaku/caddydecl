@@ -1,6 +1,7 @@
 package caddydecl
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -110,4 +111,189 @@ func TestNested(t *testing.T) {
 				Age: 10,
 			},
 		})
+}
+
+func TestValidation(t *testing.T) {
+	if err := Unmarshal(nil, caddyfile.NewTestDispenser(``)); err == nil {
+		t.Fatal("expected error for nil pointer")
+	}
+	var s string
+	if err := Unmarshal(&s, caddyfile.NewTestDispenser(``)); err == nil {
+		t.Fatal("expected error for non-struct pointer")
+	}
+}
+
+func TestNoTokens(t *testing.T) {
+	type Empty struct{}
+	var e Empty
+	ensure.Nil(t, Unmarshal(&e, caddyfile.NewTestDispenser(``)))
+}
+
+func TestUnknownKey(t *testing.T) {
+	type Simple struct {
+		Name string
+	}
+	var s Simple
+	ensure.Nil(t, Unmarshal(&s, caddyfile.NewTestDispenser(`simple {
+		name foo
+		unknown bar
+	}`)))
+	ensure.DeepEqual(t, s, Simple{Name: "foo"})
+}
+
+func TestUnexportedField(t *testing.T) {
+	type Mixed struct {
+		Name    string
+		secret  string
+		Visible int
+	}
+	var m Mixed
+	ensure.Nil(t, Unmarshal(&m, caddyfile.NewTestDispenser(`mixed {
+		name foo
+		visible 42
+	}`)))
+	ensure.DeepEqual(t, m, Mixed{Name: "foo", Visible: 42})
+}
+
+func TestUint(t *testing.T) {
+	type Unsigned struct {
+		Count uint
+	}
+	var u Unsigned
+	ensure.Nil(t, Unmarshal(&u, caddyfile.NewTestDispenser(`unsigned {
+		count 99
+	}`)))
+	ensure.DeepEqual(t, u, Unsigned{Count: 99})
+}
+
+func TestBoolVariations(t *testing.T) {
+	type Flags struct {
+		A bool
+		B bool
+		C bool
+		D bool
+	}
+	var f Flags
+	ensure.Nil(t, Unmarshal(&f, caddyfile.NewTestDispenser(`flags {
+		a true
+		b yes
+		c false
+		d no
+	}`)))
+	ensure.DeepEqual(t, f, Flags{A: true, B: true, C: false, D: false})
+}
+
+func TestSlicePositionalArg(t *testing.T) {
+	type Sliced struct {
+		Tags []string `caddydecl:"arg=0"`
+	}
+	var s Sliced
+	ensure.Nil(t, Unmarshal(&s, caddyfile.NewTestDispenser(`sliced foo bar`)))
+	ensure.DeepEqual(t, s, Sliced{Tags: []string{"foo"}})
+}
+
+func TestInvalidPositionalArg(t *testing.T) {
+	type Bad struct {
+		Age int `caddydecl:"arg=0"`
+	}
+	var b Bad
+	err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad notanumber`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestInvalidBlockValues(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{"bad int", `v { age notanumber }`},
+		{"bad uint", `v { count notanumber }`},
+		{"bad float", `v { factor notanumber }`},
+		{"bad bool", `v { admin maybe }`},
+		{"bad duration", `v { expires bad }`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			type All struct {
+				Age     int
+				Count   uint
+				Factor  float32
+				Admin   bool
+				Expires time.Duration
+			}
+			var a All
+			if err := Unmarshal(&a, caddyfile.NewTestDispenser(c.input)); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
+func TestInvalidSliceElement(t *testing.T) {
+	type BadSlice struct {
+		Ages []int
+	}
+	var b BadSlice
+	if err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad {
+		ages 1 two 3
+	}`)); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestUnsupportedType(t *testing.T) {
+	type Bad struct {
+		Ch chan int
+	}
+	var b Bad
+	if err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad {
+		ch foo
+	}`)); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestNestedError(t *testing.T) {
+	type Child struct {
+		Age int
+	}
+	type Parent struct {
+		Child Child
+	}
+	var p Parent
+	if err := Unmarshal(&p, caddyfile.NewTestDispenser(`parent {
+		child {
+			age notanumber
+		}
+	}`)); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestInvalidTagArg(t *testing.T) {
+	// Invalid arg index should be silently ignored, field still usable as block key
+	type Weird struct {
+		Name string `caddydecl:"name,arg=xyz"`
+	}
+	var w Weird
+	ensure.Nil(t, Unmarshal(&w, caddyfile.NewTestDispenser(`weird {
+		name foo
+	}`)))
+	ensure.DeepEqual(t, w, Weird{Name: "foo"})
+}
+
+func TestErrorsWrapped(t *testing.T) {
+	type Bad struct {
+		Age int `caddydecl:"arg=0"`
+	}
+	var b Bad
+	err := Unmarshal(&b, caddyfile.NewTestDispenser(`bad notanumber`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "arg 0:") {
+		t.Fatalf("expected wrapped error, got: %v", err)
+	}
 }
