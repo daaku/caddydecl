@@ -1,10 +1,169 @@
 package caddydecl
 
 import (
+	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 )
 
 // Unmarshal directives from caddyfiles into structs in a predictable fashion.
 func Unmarshal(v any, d *caddyfile.Dispenser) error {
-	panic("unimplemented")
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+		return fmt.Errorf("v must be a non-nil pointer")
+	}
+
+	elem := rv.Elem()
+	if elem.Kind() != reflect.Struct {
+		return fmt.Errorf("v must point to a struct")
+	}
+
+	rt := elem.Type()
+
+	argFields := make(map[int]int)      // arg index -> field index
+	blockFields := make(map[string]int) // key -> field index
+	sliceFields := make(map[int]bool)   // field index -> is slice
+
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		if field.Type.Kind() == reflect.Slice {
+			sliceFields[i] = true
+		}
+
+		// All exported fields are potential block properties
+		key := toSnakeCase(field.Name)
+		blockFields[key] = i
+
+		// Check for positional arg tag
+		tag := field.Tag.Get("caddydecl")
+		if tag != "" {
+			parts := strings.SplitN(tag, "=", 2)
+			if len(parts) == 2 && parts[0] == "arg" {
+				if idx, err := strconv.Atoi(parts[1]); err == nil {
+					argFields[idx] = i
+				}
+			}
+		}
+	}
+
+	if !d.Next() {
+		return nil
+	}
+
+	// Parse positional args, stopping at block opener
+	args := d.RemainingArgs()
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "{") {
+			args = args[:i]
+			break
+		}
+	}
+
+	for idx, argVal := range args {
+		if fieldIdx, ok := argFields[idx]; ok {
+			field := elem.Field(fieldIdx)
+			if err := setValue(field, argVal, false); err != nil {
+				return fmt.Errorf("arg %d: %w", idx, err)
+			}
+		}
+	}
+
+	// Parse block properties
+	for d.NextBlock(0) {
+		key := d.Val()
+		fieldIdx, ok := blockFields[key]
+		if !ok {
+			continue
+		}
+
+		values := d.RemainingArgs()
+		for i, v := range values {
+			if v == "}" {
+				values = values[:i]
+				break
+			}
+		}
+
+		field := elem.Field(fieldIdx)
+		isSlice := sliceFields[fieldIdx]
+
+		if isSlice {
+			for _, val := range values {
+				if err := setValue(field, val, true); err != nil {
+					return fmt.Errorf("%s: %w", key, err)
+				}
+			}
+		} else {
+			if len(values) > 0 {
+				if err := setValue(field, values[0], false); err != nil {
+					return fmt.Errorf("%s: %w", key, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func setValue(field reflect.Value, val string, appendSlice bool) error {
+	if !field.CanSet() {
+		return fmt.Errorf("cannot set field")
+	}
+
+	if field.Kind() == reflect.Slice {
+		if !appendSlice {
+			field.Set(reflect.MakeSlice(field.Type(), 0, 0))
+		}
+		elem := reflect.New(field.Type().Elem()).Elem()
+		if err := setScalar(elem, val); err != nil {
+			return err
+		}
+		field.Set(reflect.Append(field, elem))
+		return nil
+	}
+
+	return setScalar(field, val)
+}
+
+func setScalar(field reflect.Value, val string) error {
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(val)
+	default:
+		if field.Type() == reflect.TypeOf(time.Duration(0)) {
+			d, err := caddy.ParseDuration(val)
+			if err != nil {
+				return err
+			}
+			field.Set(reflect.ValueOf(d))
+		} else {
+			return fmt.Errorf("unsupported type: %v", field.Type())
+		}
+	}
+	return nil
+}
+
+func toSnakeCase(s string) string {
+	var result strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			if i > 0 && s[i-1] >= 'a' && s[i-1] <= 'z' {
+				result.WriteByte('_')
+			}
+			result.WriteByte(c + ('a' - 'A'))
+		} else {
+			result.WriteByte(c)
+		}
+	}
+	return result.String()
 }
