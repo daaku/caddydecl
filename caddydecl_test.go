@@ -793,3 +793,19 @@ func TestEmbeddedUnmarshaler(t *testing.T) {
 			},
 		})
 }
+
+func TestMissingValue(t *testing.T) {
+	type Config struct {
+		Name string
+	}
+	var c Config
+	err := Unmarshal(&c, caddyfile.NewTestDispenser(`config {
+		name
+	}`))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Testfile") {
+		t.Fatalf("expected file info in error, got: %v", err)
+	}
+}

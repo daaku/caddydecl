@@ -118,6 +118,9 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		}
 
 		values := d.RemainingArgs()
+		if len(values) == 0 {
+			return d.Err(fmt.Sprintf("key %s has no value", key))
+		}
 		if fi.isSlice {
 			for _, val := range values {
 				if err := setValue(field, val, true); err != nil {
@@ -125,10 +128,8 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 				}
 			}
 		} else {
-			if len(values) > 0 {
-				if err := setValue(field, values[0], false); err != nil {
-					return d.WrapErr(fmt.Errorf("%s: %w", key, err))
-				}
+			if err := setValue(field, values[0], false); err != nil {
+				return d.WrapErr(fmt.Errorf("%s: %w", key, err))
 			}
 		}
 	}
