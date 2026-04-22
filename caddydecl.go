@@ -14,6 +14,14 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 )
 
+// fieldInfo holds metadata about a struct field (possibly nested via embedding).
+type fieldInfo struct {
+	path          []int
+	isSlice       bool
+	isStruct      bool
+	isUnmarshaler bool
+}
+
 // Unmarshal directives from caddyfiles into structs in a predictable fashion.
 func Unmarshal(v any, d *caddyfile.Dispenser) error {
 	rv := reflect.ValueOf(v)
@@ -26,52 +34,7 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		return fmt.Errorf("v must point to a struct")
 	}
 
-	rt := elem.Type()
-
-	argFields := make(map[int]int)        // arg index -> field index
-	blockFields := make(map[string]int)   // key -> field index
-	sliceFields := make(map[int]bool)     // field index -> is slice
-	structFields := make(map[int]bool)    // field index -> is struct
-	unmarshalerFields := make(map[int]bool) // field index -> implements caddyfile.Unmarshaler
-	unmarshalerType := reflect.TypeFor[caddyfile.Unmarshaler]()
-
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-
-		if reflect.PointerTo(field.Type).Implements(unmarshalerType) {
-			unmarshalerFields[i] = true
-		} else if field.Type.Kind() == reflect.Slice {
-			// []byte / []uint8 are treated as scalars (single base64 value)
-			if field.Type.Elem().Kind() != reflect.Uint8 {
-				sliceFields[i] = true
-			}
-		} else if field.Type.Kind() == reflect.Struct {
-			structFields[i] = true
-		}
-
-		// All exported fields are potential block properties
-		key := toSnakeCase(field.Name)
-
-		// Check for caddydecl tag (custom name and/or positional arg)
-		tag := field.Tag.Get("caddydecl")
-		if tag != "" {
-			for part := range strings.SplitSeq(tag, ",") {
-				part = strings.TrimSpace(part)
-				kv := strings.SplitN(part, "=", 2)
-				if len(kv) == 2 && kv[0] == "arg" {
-					if idx, err := strconv.Atoi(kv[1]); err == nil {
-						argFields[idx] = i
-					}
-				} else {
-					key = part
-				}
-			}
-		}
-		blockFields[key] = i
-	}
+	argFields, blockFields := collectFields(elem.Type())
 
 	if !d.Next() {
 		return nil
@@ -81,36 +44,37 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 	args := d.RemainingArgs()
 	if len(argFields) > 0 {
 		for idx, argVal := range args {
-			if fieldIdx, ok := argFields[idx]; ok {
-				field := elem.Field(fieldIdx)
-				if unmarshalerFields[fieldIdx] {
-					return d.Err(fmt.Sprintf("field with arg=%d implements Unmarshaler and cannot be used as positional argument", idx))
-				}
-				if err := setValue(field, argVal, false); err != nil {
-					return d.WrapErr(fmt.Errorf("arg %d: %w", idx, err))
-				}
+			fi, ok := argFields[idx]
+			if !ok {
+				continue
+			}
+			field := fieldByPath(elem, fi.path)
+			if fi.isUnmarshaler {
+				return d.Err(fmt.Sprintf("field with arg=%d implements Unmarshaler and cannot be used as positional argument", idx))
+			}
+			if err := setValue(field, argVal, false); err != nil {
+				return d.WrapErr(fmt.Errorf("arg %d: %w", idx, err))
 			}
 		}
 	} else {
 		// Parse inline key-value pairs
 		for i := 0; i < len(args); i++ {
 			key := args[i]
-			fieldIdx, ok := blockFields[key]
+			fi, ok := blockFields[key]
 			if !ok {
 				return d.Err(fmt.Sprintf("unrecognized key: %s", key))
 			}
-			field := elem.Field(fieldIdx)
-			if structFields[fieldIdx] {
+			field := fieldByPath(elem, fi.path)
+			if fi.isStruct {
 				return d.Err(fmt.Sprintf("struct field %s cannot be used inline", key))
 			}
-			if unmarshalerFields[fieldIdx] {
+			if fi.isUnmarshaler {
 				return d.Err(fmt.Sprintf("field %s implements Unmarshaler and cannot be used inline", key))
 			}
 			if i+1 >= len(args) {
 				return d.Err(fmt.Sprintf("key %s has no value", key))
 			}
-			isSlice := sliceFields[fieldIdx]
-			if isSlice {
+			if fi.isSlice {
 				for _, val := range args[i+1:] {
 					if err := setValue(field, val, true); err != nil {
 						return d.WrapErr(fmt.Errorf("%s: %w", key, err))
@@ -128,14 +92,14 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 	// Parse block properties
 	for d.NextBlock(0) {
 		key := d.Val()
-		fieldIdx, ok := blockFields[key]
+		fi, ok := blockFields[key]
 		if !ok {
 			return d.Err(fmt.Sprintf("unrecognized key: %s", key))
 		}
 
-		field := elem.Field(fieldIdx)
+		field := fieldByPath(elem, fi.path)
 
-		if unmarshalerFields[fieldIdx] {
+		if fi.isUnmarshaler {
 			file, line := d.File(), d.Line()
 			unmarshaler := field.Addr().Interface().(caddyfile.Unmarshaler)
 			if err := unmarshaler.UnmarshalCaddyfile(d); err != nil {
@@ -144,7 +108,7 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 			continue
 		}
 
-		if structFields[fieldIdx] {
+		if fi.isStruct {
 			file, line := d.File(), d.Line()
 			seg := d.NewFromNextSegment()
 			if err := Unmarshal(field.Addr().Interface(), seg); err != nil {
@@ -154,9 +118,7 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 		}
 
 		values := d.RemainingArgs()
-		isSlice := sliceFields[fieldIdx]
-
-		if isSlice {
+		if fi.isSlice {
 			for _, val := range values {
 				if err := setValue(field, val, true); err != nil {
 					return d.WrapErr(fmt.Errorf("%s: %w", key, err))
@@ -172,6 +134,98 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 	}
 
 	return nil
+}
+
+// collectFields recursively scans a struct type and returns mappings for
+// positional arguments and block keys. Embedded (anonymous) struct fields are
+// flattened into the parent so their fields are addressable directly.
+func collectFields(t reflect.Type) (argFields map[int]*fieldInfo, blockFields map[string]*fieldInfo) {
+	argFields = make(map[int]*fieldInfo)
+	blockFields = make(map[string]*fieldInfo)
+	unmarshalerType := reflect.TypeFor[caddyfile.Unmarshaler]()
+
+	var walk func(rt reflect.Type, prefix []int)
+	walk = func(rt reflect.Type, prefix []int) {
+		// First pass: register all non-embedded fields at this level.
+		for i := 0; i < rt.NumField(); i++ {
+			field := rt.Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			if field.Anonymous && field.Type.Kind() == reflect.Struct {
+				// Skip embedded structs in the first pass; they are handled
+				// recursively in the second pass.
+				if !reflect.PointerTo(field.Type).Implements(unmarshalerType) {
+					continue
+				}
+			}
+
+			path := append([]int(nil), prefix...)
+			path = append(path, i)
+
+			fi := &fieldInfo{path: path}
+			ft := field.Type
+			if reflect.PointerTo(ft).Implements(unmarshalerType) {
+				fi.isUnmarshaler = true
+			} else if ft.Kind() == reflect.Slice {
+				if ft.Elem().Kind() != reflect.Uint8 {
+					fi.isSlice = true
+				}
+			} else if ft.Kind() == reflect.Struct {
+				fi.isStruct = true
+			}
+
+			key := toSnakeCase(field.Name)
+			tag := field.Tag.Get("caddydecl")
+			if tag != "" {
+				for part := range strings.SplitSeq(tag, ",") {
+					part = strings.TrimSpace(part)
+					kv := strings.SplitN(part, "=", 2)
+					if len(kv) == 2 && kv[0] == "arg" {
+						if idx, err := strconv.Atoi(kv[1]); err == nil {
+							if _, exists := argFields[idx]; !exists {
+								argFields[idx] = fi
+							}
+						}
+					} else {
+						key = part
+					}
+				}
+			}
+			if _, exists := blockFields[key]; !exists {
+				blockFields[key] = fi
+			}
+		}
+
+		// Second pass: recurse into embedded structs.
+		for i := 0; i < rt.NumField(); i++ {
+			field := rt.Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			if !(field.Anonymous && field.Type.Kind() == reflect.Struct) {
+				continue
+			}
+			// If the embedded struct implements Unmarshaler it was already
+			// registered as a regular field in the first pass.
+			if reflect.PointerTo(field.Type).Implements(unmarshalerType) {
+				continue
+			}
+			path := append([]int(nil), prefix...)
+			path = append(path, i)
+			walk(field.Type, path)
+		}
+	}
+
+	walk(t, nil)
+	return argFields, blockFields
+}
+
+func fieldByPath(v reflect.Value, path []int) reflect.Value {
+	for _, idx := range path {
+		v = v.Field(idx)
+	}
+	return v
 }
 
 func setValue(field reflect.Value, val string, appendSlice bool) error {

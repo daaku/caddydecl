@@ -740,3 +740,56 @@ func TestCustomUnmarshalerSliceElementError(t *testing.T) {
 		t.Fatalf("expected bad value error, got: %v", err)
 	}
 }
+
+func TestEmbedded(t *testing.T) {
+	type Inner struct {
+		Name string
+	}
+	type Outer struct {
+		Inner
+	}
+
+	var o Outer
+	d := caddyfile.NewTestDispenser(
+		`outer {
+			name foo
+		}`)
+	ensure.Nil(t, Unmarshal(&o, d))
+	ensure.DeepEqual(t, o,
+		Outer{
+			Inner: Inner{
+				Name: "foo",
+			},
+		})
+}
+
+type EmbUnmarshal struct {
+	Value string
+}
+
+func (e *EmbUnmarshal) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	if !d.Next() {
+		return d.ArgErr()
+	}
+	e.Value = d.Val()
+	return nil
+}
+
+func TestEmbeddedUnmarshaler(t *testing.T) {
+	type Outer struct {
+		EmbUnmarshal
+	}
+
+	var o Outer
+	d := caddyfile.NewTestDispenser(
+		`outer {
+			emb_unmarshal hello
+		}`)
+	ensure.Nil(t, Unmarshal(&o, d))
+	ensure.DeepEqual(t, o,
+		Outer{
+			EmbUnmarshal: EmbUnmarshal{
+				Value: "hello",
+			},
+		})
+}
