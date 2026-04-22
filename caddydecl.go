@@ -175,6 +175,8 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 }
 
 func setValue(field reflect.Value, val string, appendSlice bool) error {
+	unmarshalerType := reflect.TypeFor[caddyfile.Unmarshaler]()
+
 	// Special case: []byte as base64 URL encoded without padding
 	if field.Kind() == reflect.Slice && field.Type().Elem().Kind() == reflect.Uint8 {
 		decoded, err := base64.RawURLEncoding.DecodeString(val)
@@ -189,8 +191,14 @@ func setValue(field reflect.Value, val string, appendSlice bool) error {
 		if !appendSlice {
 			field.Set(reflect.MakeSlice(field.Type(), 0, 0))
 		}
-		elem := reflect.New(field.Type().Elem()).Elem()
-		if err := setScalar(elem, val); err != nil {
+		elemType := field.Type().Elem()
+		elem := reflect.New(elemType).Elem()
+		if reflect.PointerTo(elemType).Implements(unmarshalerType) {
+			unmarshaler := elem.Addr().Interface().(caddyfile.Unmarshaler)
+			if err := unmarshaler.UnmarshalCaddyfile(caddyfile.NewTestDispenser(val)); err != nil {
+				return err
+			}
+		} else if err := setScalar(elem, val); err != nil {
 			return err
 		}
 		field.Set(reflect.Append(field, elem))

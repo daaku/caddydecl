@@ -623,6 +623,39 @@ func TestCustomUnmarshaler(t *testing.T) {
 		})
 }
 
+type IntLetter string
+
+func (i *IntLetter) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	if !d.Next() {
+		return d.ArgErr()
+	}
+	switch d.Val() {
+	default:
+		return d.Err("unexpected value")
+	case "1":
+		*i = "a"
+	case "2":
+		*i = "b"
+	}
+	return nil
+}
+
+func TestCustomUnmarshalerInline(t *testing.T) {
+	type Config struct {
+		Letters []IntLetter
+	}
+	var c Config
+	d := caddyfile.NewTestDispenser(
+		`config {
+			letters 1 2
+		}`)
+	ensure.Nil(t, Unmarshal(&c, d))
+	ensure.DeepEqual(t, c,
+		Config{
+			Letters: []IntLetter{"a", "b"},
+		})
+}
+
 func TestCustomUnmarshalerInlineError(t *testing.T) {
 	type Config struct {
 		Users Users
@@ -674,5 +707,36 @@ func TestCustomUnmarshalerBlockError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "users") {
 		t.Fatalf("expected users error, got: %v", err)
+	}
+}
+
+type StrictIntLetter string
+
+func (i *StrictIntLetter) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	if !d.Next() {
+		return d.ArgErr()
+	}
+	if d.Val() == "bad" {
+		return d.Err("bad value")
+	}
+	*i = StrictIntLetter(d.Val())
+	return nil
+}
+
+func TestCustomUnmarshalerSliceElementError(t *testing.T) {
+	type Config struct {
+		Letters []StrictIntLetter
+	}
+	var c Config
+	d := caddyfile.NewTestDispenser(
+		`config {
+			letters ok bad
+		}`)
+	err := Unmarshal(&c, d)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "bad value") {
+		t.Fatalf("expected bad value error, got: %v", err)
 	}
 }
