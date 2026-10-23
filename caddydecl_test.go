@@ -656,6 +656,36 @@ func TestCustomUnmarshalerInline(t *testing.T) {
 		})
 }
 
+// Token records the single token it is given, and fails if there are more.
+type Token string
+
+func (tok *Token) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	if !d.Next() {
+		return d.ArgErr()
+	}
+	*tok = Token(d.Val())
+	if d.Next() {
+		return d.Errf("unexpected token %q", d.Val())
+	}
+	return nil
+}
+
+func TestCustomUnmarshalerSliceGetsTokenAsIs(t *testing.T) {
+	type Config struct {
+		Tokens []Token
+	}
+	var c Config
+	d := caddyfile.NewTestDispenser(
+		`config {
+			tokens "a b" "c\"d" "#e" "f\g" plain
+		}`)
+	ensure.Nil(t, Unmarshal(&c, d))
+	ensure.DeepEqual(t, c,
+		Config{
+			Tokens: []Token{"a b", `c"d`, "#e", `f\g`, "plain"},
+		})
+}
+
 func TestCustomUnmarshalerInlineError(t *testing.T) {
 	type Config struct {
 		Users Users

@@ -250,7 +250,12 @@ func setValue(field reflect.Value, val string, appendSlice bool) error {
 		elem := reflect.New(elemType).Elem()
 		if reflect.PointerTo(elemType).Implements(unmarshalerType) {
 			unmarshaler := elem.Addr().Interface().(caddyfile.Unmarshaler)
-			if err := unmarshaler.UnmarshalCaddyfile(caddyfile.NewTestDispenser(val)); err != nil {
+			// val is a token the Caddyfile lexer already produced, quotes
+			// and escapes resolved. Hand it over as that single token;
+			// lexing it again would split it on spaces and reinterpret
+			// quotes, backslashes and comments.
+			d := caddyfile.NewDispenser([]caddyfile.Token{{Text: val}})
+			if err := unmarshaler.UnmarshalCaddyfile(d); err != nil {
 				return err
 			}
 		} else if err := setScalar(elem, val); err != nil {
