@@ -793,6 +793,165 @@ func TestEmbedded(t *testing.T) {
 		})
 }
 
+func TestEmbeddedPointer(t *testing.T) {
+	type Inner struct {
+		Name string
+		Tags []string
+	}
+	type Outer struct {
+		ID string
+		*Inner
+	}
+
+	var set Outer
+	ensure.Nil(t, Unmarshal(&set, caddyfile.NewTestDispenser(
+		`outer {
+			id one
+			name foo
+			tags a b
+		}`)))
+	ensure.DeepEqual(t, set,
+		Outer{
+			ID: "one",
+			Inner: &Inner{
+				Name: "foo",
+				Tags: []string{"a", "b"},
+			},
+		})
+
+	// left nil when none of its fields are given
+	var unset Outer
+	ensure.Nil(t, Unmarshal(&unset, caddyfile.NewTestDispenser(
+		`outer {
+			id one
+		}`)))
+	ensure.DeepEqual(t, unset, Outer{ID: "one"})
+}
+
+func TestEmbeddedPointerWithNamedStruct(t *testing.T) {
+	type Inner struct {
+		Name string
+	}
+	type Child struct {
+		Age int
+	}
+	type Outer struct {
+		*Inner
+		Child Child
+	}
+
+	var o Outer
+	ensure.Nil(t, Unmarshal(&o, caddyfile.NewTestDispenser(
+		`outer {
+			name foo
+			child {
+				age 10
+			}
+		}`)))
+	ensure.DeepEqual(t, o, Outer{Inner: &Inner{Name: "foo"}, Child: Child{Age: 10}})
+
+	// named struct fields are nested, not flattened
+	err := Unmarshal(&o, caddyfile.NewTestDispenser(
+		`outer {
+			age 10
+		}`))
+	ensure.StringContains(t, err.Error(), "unrecognized key: age")
+}
+
+func TestEmbeddedPointerKeepsExisting(t *testing.T) {
+	type Inner struct {
+		Name string
+		Kind string
+	}
+	type Outer struct {
+		*Inner
+	}
+
+	o := Outer{Inner: &Inner{Kind: "existing"}}
+	existing := o.Inner
+	ensure.Nil(t, Unmarshal(&o, caddyfile.NewTestDispenser(
+		`outer {
+			name foo
+		}`)))
+	ensure.True(t, o.Inner == existing)
+	ensure.DeepEqual(t, *o.Inner, Inner{Name: "foo", Kind: "existing"})
+}
+
+func TestEmbeddedPointerNested(t *testing.T) {
+	type Deep struct {
+		Name string
+	}
+	type Middle struct {
+		*Deep
+	}
+	type Outer struct {
+		*Middle
+	}
+
+	var o Outer
+	ensure.Nil(t, Unmarshal(&o, caddyfile.NewTestDispenser(
+		`outer {
+			name foo
+		}`)))
+	ensure.DeepEqual(t, o, Outer{Middle: &Middle{Deep: &Deep{Name: "foo"}}})
+}
+
+func TestEmbeddedPointerInlineAndPositional(t *testing.T) {
+	type Inner struct {
+		Name string `caddydecl:"arg=0"`
+	}
+	type Outer struct {
+		*Inner
+	}
+
+	var o Outer
+	ensure.Nil(t, Unmarshal(&o, caddyfile.NewTestDispenser(`outer foo`)))
+	ensure.DeepEqual(t, o, Outer{Inner: &Inner{Name: "foo"}})
+
+	type InlineInner struct {
+		Name string
+	}
+	type InlineOuter struct {
+		*InlineInner
+	}
+	var io InlineOuter
+	ensure.Nil(t, Unmarshal(&io, caddyfile.NewTestDispenser(`outer name foo`)))
+	ensure.DeepEqual(t, io, InlineOuter{InlineInner: &InlineInner{Name: "foo"}})
+}
+
+func TestEmbeddedPointerWithUnmarshalerField(t *testing.T) {
+	type Inner struct {
+		Field EmbUnmarshal
+	}
+	type Outer struct {
+		*Inner
+	}
+
+	var o Outer
+	ensure.Nil(t, Unmarshal(&o, caddyfile.NewTestDispenser(
+		`outer {
+			field hello
+		}`)))
+	ensure.DeepEqual(t, o, Outer{Inner: &Inner{Field: EmbUnmarshal{Value: "hello"}}})
+}
+
+func TestEmbeddedPointerUnknownKey(t *testing.T) {
+	type Inner struct {
+		Name string
+	}
+	type Outer struct {
+		*Inner
+	}
+
+	var o Outer
+	err := Unmarshal(&o, caddyfile.NewTestDispenser(
+		`outer {
+			nope foo
+		}`))
+	ensure.StringContains(t, err.Error(), "unrecognized key: nope")
+	ensure.True(t, o.Inner == nil)
+}
+
 type EmbUnmarshal struct {
 	Value string
 }

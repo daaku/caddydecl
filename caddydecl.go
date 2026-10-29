@@ -139,7 +139,9 @@ func Unmarshal(v any, d *caddyfile.Dispenser) error {
 
 // collectFields recursively scans a struct type and returns mappings for
 // positional arguments and block keys. Embedded (anonymous) struct fields are
-// flattened into the parent so their fields are addressable directly.
+// flattened into the parent so their fields are addressable directly. This
+// includes embedded pointers to structs, which are allocated when one of their
+// fields is set, and otherwise left nil.
 func collectFields(t reflect.Type) (argFields map[int]*fieldInfo, blockFields map[string]*fieldInfo) {
 	argFields = make(map[int]*fieldInfo)
 	blockFields = make(map[string]*fieldInfo)
@@ -153,12 +155,10 @@ func collectFields(t reflect.Type) (argFields map[int]*fieldInfo, blockFields ma
 			if !field.IsExported() {
 				continue
 			}
-			if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			if _, ok := embeddedStruct(field, unmarshalerType); ok {
 				// Skip embedded structs in the first pass; they are handled
 				// recursively in the second pass.
-				if !reflect.PointerTo(field.Type).Implements(unmarshalerType) {
-					continue
-				}
+				continue
 			}
 
 			path := append([]int(nil), prefix...)
@@ -204,17 +204,13 @@ func collectFields(t reflect.Type) (argFields map[int]*fieldInfo, blockFields ma
 			if !field.IsExported() {
 				continue
 			}
-			if !(field.Anonymous && field.Type.Kind() == reflect.Struct) {
-				continue
-			}
-			// If the embedded struct implements Unmarshaler it was already
-			// registered as a regular field in the first pass.
-			if reflect.PointerTo(field.Type).Implements(unmarshalerType) {
+			et, ok := embeddedStruct(field, unmarshalerType)
+			if !ok {
 				continue
 			}
 			path := append([]int(nil), prefix...)
 			path = append(path, i)
-			walk(field.Type, path)
+			walk(et, path)
 		}
 	}
 
@@ -222,9 +218,34 @@ func collectFields(t reflect.Type) (argFields map[int]*fieldInfo, blockFields ma
 	return argFields, blockFields
 }
 
+// embeddedStruct returns the struct type to flatten for an embedded struct or
+// pointer to struct. Embedded structs implementing Unmarshaler are not
+// flattened, since they are handled as a regular field.
+func embeddedStruct(field reflect.StructField, unmarshalerType reflect.Type) (reflect.Type, bool) {
+	if !field.Anonymous {
+		return nil, false
+	}
+	t := field.Type
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || reflect.PointerTo(t).Implements(unmarshalerType) {
+		return nil, false
+	}
+	return t, true
+}
+
+// fieldByPath returns the field at path, allocating any nil embedded pointers
+// along the way.
 func fieldByPath(v reflect.Value, path []int) reflect.Value {
-	for _, idx := range path {
+	for i, idx := range path {
 		v = v.Field(idx)
+		if i < len(path)-1 && v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
 	}
 	return v
 }

@@ -93,6 +93,49 @@ parent {
 }
 ```
 
+### Embedded Structs
+
+The fields of an embedded struct are flattened into the parent, so they are set
+directly in its block:
+
+```go
+type Common struct {
+    Name string
+}
+type Parent struct {
+    Common
+    Age int
+}
+```
+
+```caddyfile
+parent {
+    name foo
+    age 10
+}
+```
+
+An embedded pointer to a struct is flattened the same way. It is allocated when
+one of its fields is set, and left `nil` otherwise, which tells you whether any
+of them were given:
+
+```go
+type Parent struct {
+    *Common
+    Age int
+}
+```
+
+```caddyfile
+parent {
+    age 10
+}
+```
+
+```go
+Common == nil
+```
+
 ## Struct Tags
 
 The `caddydecl` tag controls field mapping:
